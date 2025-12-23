@@ -30,17 +30,15 @@ a-shopping-site/
 ├─ shop/
 │ ├─ settings.py
 │ ├─ urls.py
-│ ├─ wsgi.py
-│ └─ pycache/
+│ └─ wsgi.py
 ├─ store/
 │ ├─ models.py
 │ ├─ views.py
 │ ├─ forms.py
 │ ├─ urls.py
 │ ├─ admin.py
-│ ├─ migrations/
-│ │ └─ pycache/
-│ └─ pycache/
+│ └─ migrations/
+│ 
 ├─ templates/
 │ └─ admin/
 ├─ static/
