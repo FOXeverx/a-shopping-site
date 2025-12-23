@@ -58,6 +58,11 @@ from decimal import Decimal
 
 
 def product_list(request):
+    """
+    商品列表页
+    - 支持关键词查询
+    - GET 请求不修改服务器状态，符合 REST 设计原则
+    """
     q = request.GET.get('q', '').strip()
 
     products = Product.objects.all()
@@ -75,10 +80,23 @@ def product_list(request):
 
 
 def product_detail(request, pk):
+    """
+    商品详情页
+    - 使用 get_object_or_404 防止非法资源访问
+    """
     product = get_object_or_404(Product, pk=pk)
     return render(request, 'product_detail.html', {'product': product})
 
+# ======================
+# 用户注册与登录（认证子系统）
+# ======================
+
 def register_view(request):
+    """
+    用户注册视图
+    - 使用邮箱验证码防止恶意注册
+    - 验证码存储于数据库，避免依赖 Session
+    """
     if request.method == 'POST':
         form = RegisterForm(request.POST)
 
@@ -123,6 +141,10 @@ def register_view(request):
 
 
 def login_view(request):
+    """
+    用户登录
+    - 使用 Django 内置认证机制，避免自行处理密码比对
+    """
     if request.method == 'POST':
         form = LoginForm(request.POST)
         if form.is_valid():
@@ -139,11 +161,20 @@ def login_view(request):
     return render(request, 'login.html', {'form': form})
 
 def logout_view(request):
+    """
+    用户登出
+    - 清除服务器端 Session
+    """
     logout(request)
     return redirect('product_list')
 
 @login_required
 def add_to_cart(request, pk):
+    """
+    加入购物车
+    - 购物车项与用户强绑定
+    - 每次修改数量前校验库存，避免超卖
+    """
     product = get_object_or_404(Product, pk=pk)
     item, created = CartItem.objects.get_or_create(user=request.user, product=product)
 
@@ -172,6 +203,9 @@ def add_to_cart(request, pk):
 
 @login_required
 def remove_from_cart(request, item_id):
+    """
+    从购物车移除商品
+    """
     it = get_object_or_404(CartItem, pk=item_id, user=request.user)
     it.delete()
     messages.success(request, '已从购物车移除。')
@@ -179,12 +213,25 @@ def remove_from_cart(request, item_id):
 
 @login_required
 def cart_view(request):
+    """
+    购物车页面
+    - 汇总用户当前购物车状态
+    """
     items = CartItem.objects.filter(user=request.user)
     total = sum([it.subtotal() for it in items]) if items else Decimal('0.00')
     return render(request, 'cart.html', {'items': items, 'total': total})
 
+
+# ======================
+# 订单结算（事务与并发控制重点）
+# ======================
 @login_required
 def checkout_view(request):
+    """
+    订单结算视图（系统关键路径）
+    - 使用 transaction.atomic 保证一致性
+    - 使用 select_for_update 防止并发超卖
+    """
     items = CartItem.objects.filter(user=request.user)
     if not items.exists():
         messages.error(request, '购物车为空。')
@@ -286,14 +333,23 @@ def checkout_view(request):
 
 @login_required
 def order_success(request):
+    """
+    下单成功页面
+    """
     return render(request, 'order_success.html')
 
 @login_required
 def order_list(request):
+    """
+    用户订单列表
+    """
     orders = Order.objects.filter(user=request.user).order_by('-created_at')
     return render(request, 'order_list.html', {'orders': orders})
 
-# 管理员页面
+
+# ======================
+# 管理员功能（RBAC 权限控制）
+# ======================
 def is_superuser(user):
     return user.is_superuser
 
@@ -331,10 +387,18 @@ def admin_product_delete(request, pk):
     p.delete()
     return redirect('admin_product_list')
 
+
 @login_required
 def confirm_order(request, order_id):
+    """
+    用户侧订单确认发货接口
+    - 仅允许订单所属用户操作
+    - 用于业务流程中“已支付 → 已发货”的状态迁移
+    """
+    # 同时校验订单 ID 与用户身份，防止越权访问
     order = get_object_or_404(Order, pk=order_id, user=request.user)
 
+    # 仅允许对已支付订单进行确认，保证状态机合法性
     if order.status != 'paid':
         messages.error(request, '当前订单无法确认发货。')
         return redirect('order_list')
@@ -347,8 +411,14 @@ def confirm_order(request, order_id):
     return redirect('order_list')
 
 def confirm_shipment_view(request, order_id, code):
+    """
+    邮件确认发货接口
+    - 通过随机确认码验证操作合法性
+    - 适用于“无登录态”的外部访问场景
+    """
     order = get_object_or_404(Order, id=order_id)
 
+    # 校验确认码，防止伪造请求
     if order.confirm_code != code:
         return render(request, 'confirm_fail.html', {"msg": "验证码无效"})
 
@@ -358,12 +428,16 @@ def confirm_shipment_view(request, order_id, code):
     return render(request, 'confirm_success.html', {"order": order})
 
 def send_code(request):
+    """
+    发送邮箱验证码（注册流程）
+    - 使用 GET 接口，返回 JSON，供前端 AJAX 调用
+    """
     email = request.GET.get('email')
 
     if not email:
         return JsonResponse({'status': 'error', 'msg': '请提供邮箱'})
 
-    # 检查是否已存在验证码且未过期
+    # 防止频繁发送验证码（简单限流机制）
     try:
         record = EmailVerification.objects.get(email=email)
         if not record.is_expired():
@@ -394,19 +468,27 @@ def send_code(request):
     return JsonResponse({'status': 'ok', 'msg': '验证码已发送'})
 
 
-#忘记密码
+# ======================================================
+# 忘记密码流程（基于 Token 的安全重置）
+# ======================================================
 def forgot_password_view(request):
+    """
+    忘记密码入口
+    - 根据邮箱生成一次性重置链接
+    - 使用 Django 内置 token 机制保证安全性
+    """
     if request.method == 'POST':
         form = ForgotPasswordForm(request.POST)
         if form.is_valid():
             email = form.cleaned_data['email']
+            # 校验邮箱是否存在
             try:
                 user = User.objects.get(email=email)
             except User.DoesNotExist:
                 messages.error(request, "该邮箱未注册。")
                 return redirect('forgot_password')
 
-            # 生成安全 token
+            # 生成 UID + Token（避免明文暴露用户 ID）
             uid = urlsafe_base64_encode(force_bytes(user.pk))
             token = default_token_generator.make_token(user)
 
@@ -432,6 +514,11 @@ def forgot_password_view(request):
 
 
 def reset_password_view(request, uid, token):
+    """
+    密码重置视图
+    - 校验 UID 与 Token 合法性
+    - 防止链接伪造与重放
+    """
     try:
         uid = force_str(urlsafe_base64_decode(uid))
         user = User.objects.get(pk=uid)
@@ -457,12 +544,15 @@ def reset_password_view(request, uid, token):
     return render(request, 'reset_password.html', {'form': form})
 
 
-#评论区
+# ======================================================
+# 评论模块（用户生成内容）
+# ======================================================
 @login_required
 def add_comment(request, pk):
     """
-    POST endpoint: add comment to product pk.
-    Expects 'content' in POST.
+    添加商品评论
+    - 仅支持 POST 请求
+    - 评论与用户、商品强关联
     """
     product = get_object_or_404(Product, pk=pk)
     if request.method == 'POST':
@@ -478,14 +568,25 @@ def add_comment(request, pk):
 
 @user_passes_test(lambda u: u.is_superuser, login_url='login')
 def delete_comment(request, comment_id):
+    """
+    删除评论（管理员权限）
+    - 使用 RBAC 控制，仅管理员可操作
+    """
     c = get_object_or_404(ProductComment, pk=comment_id)
     product_pk = c.product.pk
     c.delete()
     messages.success(request, "评论已删除。")
     return redirect('product_detail', pk=product_pk)
 
+
+# ======================================================
+# 购物车数量更新（同步 + 异步）
+# ======================================================
 @login_required
 def update_cart_item(request, item_id):
+    """
+    更新购物车商品数量（同步表单提交）
+    """
     item = get_object_or_404(CartItem, id=item_id, user=request.user)
 
     if request.method == "POST":
@@ -496,11 +597,16 @@ def update_cart_item(request, item_id):
             item.quantity = qty
             item.save()
         except:
+            # 忽略非法输入，避免中断用户流程
             pass
 
     return redirect('cart')
 
 def update_cart_quantity(request):
+    """
+    更新购物车数量（AJAX 接口）
+    - 返回 JSON，用于前端实时刷新金额
+    """
     if request.method == "POST":
         cart_id = request.POST.get("cart_id")
         quantity = int(request.POST.get("quantity"))
@@ -533,16 +639,27 @@ def update_cart_quantity(request):
 
     return JsonResponse({'error': 'invalid request'})
 
+
+# ======================================================
+# 后台订单管理
+# ======================================================
 @staff_member_required
 def admin_orders(request):
+    """
+    管理员订单列表
+    """
     orders = Order.objects.all().order_by('-created_at')
     return render(request, 'admin/admin_orders.html', {'orders': orders})
 
 @staff_member_required
 def admin_order_detail(request, pk):
+    """
+    管理员订单详情
+    """
     order = get_object_or_404(Order, pk=pk)
     items = OrderItem.objects.filter(order=order)
 
+    # 后端计算总金额，避免前端信任问题
     total_amount = sum(item.unit_price * item.quantity for item in items)
 
     return render(request, 'admin/admin_order_detail.html', {
@@ -553,6 +670,9 @@ def admin_order_detail(request, pk):
 
 @staff_member_required
 def admin_order_update(request, pk):
+    """
+    管理员修改订单状态
+    """
     order = get_object_or_404(Order, pk=pk)
     status = request.POST.get("status")
 
@@ -562,8 +682,16 @@ def admin_order_update(request, pk):
 
     return redirect('admin/admin_order_detail', pk=pk)
 
+
+# ======================================================
+# 销售统计与报表
+# ======================================================
 @staff_member_required
 def sales_report(request):
+    """
+    销售统计报表
+    - 使用 ORM 聚合完成分析
+    """
     # 每日销售额
     daily_sales = (
         Order.objects.filter(status__in=["paid", "shipped", "completed"])
@@ -596,6 +724,10 @@ def sales_report(request):
         'total_sales': total_sales,
     })
 
+
+# ======================================================
+# CSV 导出（流式响应）
+# ======================================================
 import csv
 from django.http import StreamingHttpResponse
 from django.contrib.admin.views.decorators import staff_member_required
@@ -604,12 +736,19 @@ from django.db.models.functions import TruncDate
 
 
 class Echo:
+    """
+    CSV 流式输出辅助类
+    """
     def write(self, value):
         return value
 
 
 @staff_member_required
 def export_sales_report_csv(request):
+    """
+    导出销售报表 CSV
+    - 使用 StreamingHttpResponse，避免大文件占用内存
+    """
     qs = (
         Order.objects.filter(status__in=["paid", "shipped", "completed"])
         .annotate(day=TruncDate('created_at'))
@@ -647,7 +786,9 @@ def export_sales_report_csv(request):
     return response
 
 
-#注销账号
+# ======================================================
+# 账号注销（事务保护）
+# ======================================================
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import logout
 from django.contrib import messages
@@ -656,6 +797,11 @@ from django.shortcuts import redirect
 
 @login_required
 def delete_account_view(request):
+    """
+    用户账号注销
+    - 使用事务保证多表操作一致性
+    - 订单匿名化而非删除
+    """
     user = request.user
 
     if request.method == 'POST':
