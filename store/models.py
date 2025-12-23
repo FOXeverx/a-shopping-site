@@ -65,7 +65,6 @@ class EmailVerification(models.Model):
         # 1 分钟冷却
         return (timezone.now() - self.created_at).seconds > 60
 
-# store/models.py (append this class)
 class ProductComment(models.Model):
     product = models.ForeignKey(Product, related_name='comments', on_delete=models.CASCADE)
     user = models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True)

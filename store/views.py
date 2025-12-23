@@ -190,7 +190,7 @@ def checkout_view(request):
         messages.error(request, '购物车为空。')
         return redirect('product_list')
 
-    # ==== ★ 在用户刚进入结算页面（GET 阶段）先检查库存 ★ ====
+    # 在用户刚进入结算页面（GET 阶段）先检查库存
     for it in items:
         if it.product.stock < it.quantity:
             messages.error(
@@ -207,7 +207,7 @@ def checkout_view(request):
             address = form.cleaned_data['address']
 
             with transaction.atomic():
-                # ★★★ 使用 select_for_update 锁定商品库存 ★★★
+                # select_for_update 锁定商品库存
                 product_ids = [it.product_id for it in items]
                 locked_products = (
                     Product.objects.select_for_update()
@@ -216,7 +216,7 @@ def checkout_view(request):
 
                 locked_map = {p.id: p for p in locked_products}
 
-                # ★★★ 并发场景下（二次检查库存）★★★
+                # 并发场景下（二次检查库存）
                 for it in items:
                     product = locked_map[it.product_id]
                     if product.stock < it.quantity:
@@ -226,7 +226,7 @@ def checkout_view(request):
                         )
                         return redirect('cart')
 
-                # ★★★ 库存足够 → 创建订单 ★★★
+                # 库存足够 → 创建订单
                 order = Order.objects.create(
                     user=request.user,
                     total_amount=total,
@@ -251,17 +251,17 @@ def checkout_view(request):
                 # 清空购物车
                 items.delete()
 
-            # ★ 生成随机验证串
+            # 生成随机验证串
             confirm_code = uuid.uuid4().hex
             order.confirm_code = confirm_code
             order.save()
 
-            # ★ 生成确认 URL
+            # 生成确认 URL
             confirm_url = request.build_absolute_uri(
                 reverse('confirm_shipment', args=[order.id, confirm_code])
             )
 
-            # ★ 邮件通知
+            # 邮件通知
             try:
                 send_mail(
                     subject='您的订单已创建，请确认发货',
@@ -293,7 +293,7 @@ def order_list(request):
     orders = Order.objects.filter(user=request.user).order_by('-created_at')
     return render(request, 'order_list.html', {'orders': orders})
 
-# ---------- admin web pages (simple) ----------
+# 管理员页面
 def is_superuser(user):
     return user.is_superuser
 
@@ -394,7 +394,7 @@ def send_code(request):
     return JsonResponse({'status': 'ok', 'msg': '验证码已发送'})
 
 
-
+#忘记密码
 def forgot_password_view(request):
     if request.method == 'POST':
         form = ForgotPasswordForm(request.POST)
@@ -457,6 +457,7 @@ def reset_password_view(request, uid, token):
     return render(request, 'reset_password.html', {'form': form})
 
 
+#评论区
 @login_required
 def add_comment(request, pk):
     """
@@ -572,35 +573,6 @@ def sales_report(request):
         .order_by('day')
     )
 
-    # 商品销量排行
-    top_products = (
-        OrderItem.objects.values('product__name')
-        .annotate(total_qty=Sum('quantity'))
-        .order_by('-total_qty')[:10]
-    )
-
-    # 总销售额
-    total_sales = Order.objects.filter(
-        status__in=["paid", "shipped", "completed"]
-    ).aggregate(Sum("total_amount"))['total_amount__sum'] or 0
-
-    return render(request, 'admin/sales_report.html', {
-        'daily_sales': daily_sales,
-        'top_products': top_products,
-        'total_sales': total_sales,
-    })
-
-@staff_member_required
-def sales_report(request):
-    # 每日销售额
-    daily_sales = (
-        Order.objects.filter(status__in=["paid", "shipped", "completed"])
-        .annotate(day=TruncDate('created_at'))
-        .values('day')
-        .annotate(total=Sum('total_amount'))
-        .order_by('day')
-    )
-
     # 转换成前端可直接使用的列表
     labels = [str(item['day']) for item in daily_sales]
     totals = [float(item['total']) for item in daily_sales]
@@ -650,13 +622,13 @@ def export_sales_report_csv(request):
     writer = csv.writer(pseudo_buffer)
 
     def row_generator():
-        # ★★★ 关键：写入 UTF-8 BOM，解决 Excel 中文乱码 ★★★
+        # 写入 UTF-8 BOM，解决 Excel 中文乱码
         yield '\ufeff'
 
         # 表头
         yield writer.writerow(['日期', '销售总额'])
 
-        # 数据行（逐行流式输出，内存友好）
+        # 数据行
         for row in qs:
             yield writer.writerow([
                 row['day'],
@@ -675,6 +647,7 @@ def export_sales_report_csv(request):
     return response
 
 
+#注销账号
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import logout
 from django.contrib import messages
