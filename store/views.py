@@ -57,6 +57,9 @@ import uuid
 from decimal import Decimal
 
 
+# ======================
+# 商品展示功能
+# ======================
 def product_list(request):
     """
     商品列表页
@@ -182,6 +185,10 @@ def logout_view(request):
     logout(request)
     return redirect('product_list')
 
+
+# ======================
+# 购物车功能
+# ======================
 @login_required
 def add_to_cart(request, pk):
     """
