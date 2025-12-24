@@ -143,22 +143,36 @@ def register_view(request):
 def login_view(request):
     """
     用户登录
-    - 使用 Django 内置认证机制，避免自行处理密码比对
+    - 支持用户名或邮箱登录
+    - 使用 Django 内置认证机制
     """
     if request.method == 'POST':
         form = LoginForm(request.POST)
         if form.is_valid():
-            u = form.cleaned_data['username']
+            u = form.cleaned_data['username']  # 可能是用户名，也可能是邮箱
             p = form.cleaned_data['password']
-            user = authenticate(request, username=u, password=p)
+
+            # 如果输入中包含 @，按邮箱处理
+            if '@' in u:
+                try:
+                    user_obj = User.objects.get(email=u)
+                    username = user_obj.username
+                except User.DoesNotExist:
+                    username = None
+            else:
+                username = u
+
+            user = authenticate(request, username=username, password=p)
             if user:
                 login(request, user)
                 return redirect('product_list')
             else:
-                messages.error(request, '用户名或密码错误。')
+                messages.error(request, '用户名 / 邮箱或密码错误。')
     else:
         form = LoginForm()
+
     return render(request, 'login.html', {'form': form})
+
 
 def logout_view(request):
     """

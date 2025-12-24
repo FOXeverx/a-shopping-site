@@ -25,7 +25,7 @@ class RegisterForm(forms.ModelForm):
 # 登录
 # --------------------------
 class LoginForm(forms.Form):
-    username = forms.CharField(label='用户名', max_length=150)
+    username = forms.CharField(label='用户名 / 邮箱', max_length=150)
     password = forms.CharField(label='密码', widget=forms.PasswordInput)
 
 
